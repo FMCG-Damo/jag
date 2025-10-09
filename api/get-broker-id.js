@@ -66,7 +66,7 @@ export default async function handler(req, res) {
       {
         method: "PUT",
         headers: {
-          Authorization: `Bearer ${process.env.eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJsb2NhdGlvbl9pZCI6IklZSnR2RmxaQlFUWG5OZjRscFQ0IiwidmVyc2lvbiI6MSwiaWF0IjoxNzM3OTkwOTY3ODE2LCJzdWIiOiIyS3hnbnRZWlF6ZlI1YTgwSHhqWSJ9.H509-LNGOGFMVTa5UQufFEMK3U5DS018vJUPJaC9e1w}`,
+          Authorization: `Bearer ${process.env.GHL_PRIVATE_KEY}`,
           Version: "2021-07-28",
           "Content-Type": "application/json",
           Accept: "application/json",
