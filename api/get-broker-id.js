@@ -1,6 +1,6 @@
 export const config = {
   api: {
-    bodyParser: false, // read raw body manually
+    bodyParser: false, // We’ll read the raw body ourselves
   },
 };
 
@@ -10,12 +10,11 @@ export default async function handler(req, res) {
   }
 
   try {
-    // Read raw body
+    // 🧠 Read raw body (handles URL-encoded or JSON)
     const chunks = [];
     for await (const chunk of req) chunks.push(chunk);
     const rawBody = Buffer.concat(chunks).toString();
 
-    // Try parsing JSON first, then URL encoded
     let body;
     try {
       body = JSON.parse(rawBody);
@@ -25,7 +24,7 @@ export default async function handler(req, res) {
 
     console.log("📥 Full incoming body:", body);
 
-    // Safely extract data
+    // 🧩 Extract broker and contact info from any GHL payload shape
     const contactId =
       body.contactId ||
       body.contact_id ||
@@ -34,7 +33,7 @@ export default async function handler(req, res) {
 
     const brokerName =
       body.brokerName ||
-      body.brokerId || // fallback if GHL overwrote field name
+      body.brokerId ||
       body?.customData?.brokerName ||
       body?.custom_data?.brokerName;
 
@@ -44,36 +43,51 @@ export default async function handler(req, res) {
       throw new Error("Missing contactId or brokerName from GHL");
     }
 
-    // Fetch broker data
+    // 🔎 Fetch broker mapping from your hosted JSON
     const brokers = await fetch("https://jag-psi.vercel.app/brokers.json").then(
       (r) => r.json()
     );
-    const brokerData = brokers[brokerName] || brokers["Head Office"];
 
+    const brokerData = brokers[brokerName] || brokers["Head Office"];
     if (!brokerData?.user_id) {
       throw new Error(`No user_id found for broker "${brokerName}"`);
     }
 
-    // Update contact in GHL
+    // 🔧 Prepare update payload
     const update = {
       customField: {
         "3rfOvf6EJzqJdVfzGBa2": brokerData.user_id, // brokerId field key
       },
     };
 
+    // 🚀 Send update request to GoHighLevel (correct Location API endpoint)
     const ghlRes = await fetch(
-      `https://rest.gohighlevel.com/v1/contacts/${contactId}`,
+      `https://services.leadconnectorhq.com/contacts/${contactId}`,
       {
         method: "PUT",
         headers: {
-          Authorization: `Bearer ${process.env.GHL_LOCATION_KEY}`,
+          Authorization: `Bearer ${process.env.eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJsb2NhdGlvbl9pZCI6IklZSnR2RmxaQlFUWG5OZjRscFQ0IiwidmVyc2lvbiI6MSwiaWF0IjoxNzM3OTkwOTY3ODE2LCJzdWIiOiIyS3hnbnRZWlF6ZlI1YTgwSHhqWSJ9.H509-LNGOGFMVTa5UQufFEMK3U5DS018vJUPJaC9e1w}`,
+          Version: "2021-07-28",
           "Content-Type": "application/json",
+          Accept: "application/json",
         },
         body: JSON.stringify(update),
       }
     );
 
-    const data = await ghlRes.json();
+    // 🧾 Parse safely (GHL sometimes returns HTML error pages)
+    const dataText = await ghlRes.text();
+    console.log("📡 Raw GHL response:", dataText);
+
+    let data;
+    try {
+      data = JSON.parse(dataText);
+    } catch {
+      throw new Error(
+        "GHL returned non-JSON response: " + dataText.slice(0, 120)
+      );
+    }
+
     console.log("✅ Updated contact broker ID:", data);
 
     return res
