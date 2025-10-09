@@ -6,7 +6,7 @@ export default async function handler(req, res) {
   try {
     console.log("📥 Full incoming body:", req.body);
 
-    // --- Extract and validate input ---
+    // --- Extract key fields ---
     const contactId = req.body.contact_id || req.body.contactId;
     const brokerName = req.body.brokerId || req.body.brokerName;
     console.log("🧩 Extracted:", { contactId, brokerName });
@@ -15,7 +15,7 @@ export default async function handler(req, res) {
       throw new Error("Missing contactId or brokerName from payload");
     }
 
-    // --- Load broker JSON and find the right record ---
+    // --- Fetch broker mapping ---
     const brokers = await fetch("https://jag-psi.vercel.app/brokers.json").then(r => r.json());
     const brokerData = brokers[brokerName] || brokers["Head Office"];
 
@@ -29,40 +29,42 @@ export default async function handler(req, res) {
       }
     };
 
-    console.log("🚀 Update payload:", updatePayload);
+    // --- Choose correct endpoint based on token type ---
+    const baseUrl = process.env.GHL_PRIVATE_TOKEN?.startsWith("pit-")
+      ? "https://services.leadconnectorhq.com/v1/contacts"
+      : "https://services.leadconnectorhq.com/v2/contacts";
 
-    // --- Function to call GHL safely ---
-    async function updateContact(url) {
-      console.log(`🔗 Attempting PUT to ${url}`);
-      const ghlRes = await fetch(url, {
-        method: "PUT",
-        headers: {
-          Authorization: `Bearer ${process.env.GHL_PRIVATE_TOKEN}`,
-          "Version": "2021-07-28",
-          "Content-Type": "application/json",
-          Accept: "application/json"
-        },
-        body: JSON.stringify(updatePayload)
-      });
+    const url = `${baseUrl}/${contactId}`;
+    console.log(`🔗 PUT → ${url}`);
 
-      const text = await ghlRes.text();
-      console.log("📡 Raw response:", text);
+    // --- Send update to GHL ---
+    const ghlRes = await fetch(url, {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${process.env.GHL_PRIVATE_TOKEN}`,
+        Version: "2021-07-28",
+        "Content-Type": "application/json",
+        Accept: "application/json"
+      },
+      body: JSON.stringify(updatePayload)
+    });
 
-      if (!ghlRes.ok) throw new Error(`GHL API error: ${text}`);
-      return JSON.parse(text);
-    }
+    const text = await ghlRes.text();
+    console.log("📡 Raw response:", text);
 
-    // --- Try v2 first, fallback to v1 if needed ---
+    // --- Parse and handle response ---
     let data;
     try {
-      data = await updateContact(`https://services.leadconnectorhq.com/v2/contacts/${contactId}`);
-    } catch (errV2) {
-      console.warn("⚠️ v2 failed, retrying with v1:", errV2.message);
-      data = await updateContact(`https://services.leadconnectorhq.com/contacts/${contactId}`);
+      data = JSON.parse(text);
+    } catch (err) {
+      throw new Error(`Unexpected response from GHL: ${text.slice(0, 120)}...`);
+    }
+
+    if (!ghlRes.ok) {
+      throw new Error(`GHL API error: ${JSON.stringify(data)}`);
     }
 
     console.log("✅ Contact successfully updated:", data);
-
     return res.status(200).json({
       success: true,
       brokerId: brokerData.user_id,
