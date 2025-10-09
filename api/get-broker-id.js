@@ -28,7 +28,7 @@ export default async function handler(req, res) {
     console.info("🚀 Attempting PUT update for contact:", contactId, "→", brokerData.user_id);
 
     // 3️⃣ Primary attempt: direct update
-    const ghlRes = await fetch(`https://rest.gohighlevel.com/v1/contacts/${contactId}`, {
+    const ghlRes = await fetch(`https://services.leadconnectorhq.com/v2/contacts/${contactId}`, {
       method: "PUT",
       headers: {
         Authorization: `Bearer ${process.env.GHL_PRIVATE_KEY}`,
