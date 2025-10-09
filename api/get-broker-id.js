@@ -1,16 +1,35 @@
 export default async function handler(req, res) {
-  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+  if (req.method !== "POST") {
+    return res.status(405).json({ error: "Method not allowed" });
+  }
 
   try {
-    const { contactId, brokerName } = req.body;
-    if (!contactId || !brokerName) throw new Error("Missing data from GHL");
+    let body = req.body;
+
+    // 🧠 Handle URL-encoded (typical from GHL) or JSON
+    if (typeof body === "string") {
+      try {
+        body = JSON.parse(body);
+      } catch {
+        // attempt manual parsing for x-www-form-urlencoded
+        body = Object.fromEntries(new URLSearchParams(body));
+      }
+    }
+
+    const { contactId, brokerName } = body || {};
+    console.log("📥 Incoming payload:", body);
+
+    if (!contactId || !brokerName) {
+      throw new Error("Missing data from GHL");
+    }
 
     // 🔎 Fetch broker JSON
     const brokers = await fetch("https://jag-psi.vercel.app/brokers.json").then(r => r.json());
     const brokerData = brokers[brokerName] || brokers["Head Office"];
 
-    if (!brokerData?.user_id)
+    if (!brokerData?.user_id) {
       throw new Error(`No user_id found for broker ${brokerName}`);
+    }
 
     // 🔧 Update the contact’s brokerId field in GHL
     const update = {
