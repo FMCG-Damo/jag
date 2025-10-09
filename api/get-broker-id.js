@@ -1,23 +1,34 @@
+export const config = {
+  api: {
+    bodyParser: false, // disable automatic parsing
+  },
+};
+
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
   try {
-    let body = req.body;
+    // 🧠 Read raw body from stream
+    const chunks = [];
+    for await (const chunk of req) {
+      chunks.push(chunk);
+    }
+    const rawBody = Buffer.concat(chunks).toString();
 
-    // 🧠 Handle URL-encoded (typical from GHL) or JSON
-    if (typeof body === "string") {
-      try {
-        body = JSON.parse(body);
-      } catch {
-        // attempt manual parsing for x-www-form-urlencoded
-        body = Object.fromEntries(new URLSearchParams(body));
-      }
+    // 🧩 Try parsing JSON first, then URL encoded
+    let body;
+    try {
+      body = JSON.parse(rawBody);
+    } catch {
+      body = Object.fromEntries(new URLSearchParams(rawBody));
     }
 
+    console.log("📥 Raw body:", rawBody);
+    console.log("📦 Parsed body:", body);
+
     const { contactId, brokerName } = body || {};
-    console.log("📥 Incoming payload:", body);
 
     if (!contactId || !brokerName) {
       throw new Error("Missing data from GHL");
@@ -34,8 +45,8 @@ export default async function handler(req, res) {
     // 🔧 Update the contact’s brokerId field in GHL
     const update = {
       customField: {
-        "3rfOvf6EJzqJdVfzGBa2": brokerData.user_id // brokerId field key
-      }
+        "3rfOvf6EJzqJdVfzGBa2": brokerData.user_id, // brokerId field key
+      },
     };
 
     const ghlRes = await fetch(
@@ -44,9 +55,9 @@ export default async function handler(req, res) {
         method: "PUT",
         headers: {
           Authorization: `Bearer ${process.env.GHL_LOCATION_KEY}`,
-          "Content-Type": "application/json"
+          "Content-Type": "application/json",
         },
-        body: JSON.stringify(update)
+        body: JSON.stringify(update),
       }
     );
 
