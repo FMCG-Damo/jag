@@ -5,38 +5,42 @@ export default async function handler(req, res) {
   try {
     const { email, firstName, lastName, brokerName } = req.body;
 
-    // 1️⃣ Fetch broker JSON from Vercel
-    const brokers = await fetch("https://jag-psi.vercel.app/brokers.json").then(r => r.json());
-    const brokerData = brokers[brokerName] || brokers["Head Office"];
+    const brokers = await fetch("https://social.jagfs.co.uk/brokers.json").then(r => r.json());
+    const normalised = brokerName.trim().replace(/[-_]+/g, " ").replace(/\s+/g, " ");
+    const brokerData = brokers[normalised] || brokers[brokerName] || brokers["Head Office"];
 
-    if (!brokerData?.user_id) {
-      throw new Error(`Broker ${brokerName} not found or missing user_id`);
-    }
+    if (!brokerData?.user_id)
+      throw new Error(`Broker '${brokerName}' not found in brokers.json`);
 
-    // 2️⃣ Send to Go High Level
-    const ghlResponse = await fetch("https://rest.gohighlevel.com/v1/contacts/", {
+    const payload = {
+      email,
+      firstName,
+      lastName,
+      customFields: [
+        { id: "3rfOvf6EJzqJdVfzGBa2", value: brokerData.user_id }
+      ]
+    };
+
+    const ghlRes = await fetch("https://services.leadconnectorhq.com/v1/contacts/", {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${process.env.GHL_LOCATION_KEY}`,
-        "Accept": "application/json",
-        "Content-Type": "application/json"
+        Authorization: `Bearer ${process.env.GHL_PRIVATE_TOKEN}`,
+        Version: "2021-07-28",
+        "Content-Type": "application/json",
+        Accept: "application/json"
       },
-      body: JSON.stringify({
-        email,
-        firstName,
-        lastName,
-        customField: {
-          "3rfOvf6EJzqJdVfzGBa2": brokerData.user_id // Your BrokerId field
-        }
-      })
+      body: JSON.stringify(payload)
     });
 
-    const data = await ghlResponse.json();
-    console.log("📩 GHL API Response:", data);
+    const data = await ghlRes.json();
+    console.log("📩 GHL contact created:", data);
+
+    if (!ghlRes.ok)
+      throw new Error(`GHL error: ${JSON.stringify(data)}`);
 
     res.status(200).json({ success: true, data });
   } catch (err) {
-    console.error("❌ GHL contact creation failed:", err);
+    console.error("❌ ghl-contact error:", err);
     res.status(500).json({ error: err.message });
   }
 }

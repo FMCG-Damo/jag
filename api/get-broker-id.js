@@ -1,43 +1,36 @@
 export default async function handler(req, res) {
-  if (req.method !== "POST") {
+  if (req.method !== "POST")
     return res.status(405).json({ error: "Method not allowed" });
-  }
 
   try {
-    console.log("📥 Full incoming body:", req.body);
+    console.log("📥 Incoming webhook:", req.body);
 
-    // --- Extract key fields ---
-    const contactId = req.body.contact_id || req.body.contactId;
+    const contactId = req.body.contactId || req.body.contact_id;
     const brokerName = req.body.brokerId || req.body.brokerName;
-    console.log("🧩 Extracted:", { contactId, brokerName });
 
-    if (!contactId || !brokerName) {
-      throw new Error("Missing contactId or brokerName from payload");
-    }
+    if (!contactId || !brokerName)
+      throw new Error("Missing contactId or brokerName in payload");
 
-    // --- Fetch broker mapping ---
-    const brokers = await fetch("https://jag-psi.vercel.app/brokers.json").then(r => r.json());
-    const brokerData = brokers[brokerName] || brokers["Head Office"];
+    // Fetch broker list from same domain (root now ./)
+    const brokers = await fetch("https://social.jagfs.co.uk/brokers.json").then(r => r.json());
 
-    if (!brokerData?.user_id) {
-      throw new Error(`No user_id found for broker ${brokerName}`);
-    }
+    // Normalise name (spaces vs hyphens vs underscores)
+    const normalised = brokerName.trim().replace(/[-_]+/g, " ").replace(/\s+/g, " ");
+    const brokerData = brokers[normalised] || brokers[brokerName] || brokers["Head Office"];
+
+    if (!brokerData?.user_id)
+      throw new Error(`No user_id found for broker '${brokerName}'`);
 
     const updatePayload = {
-      customField: {
-        "3rfOvf6EJzqJdVfzGBa2": brokerData.user_id
-      }
+      customFields: [
+        { id: "3rfOvf6EJzqJdVfzGBa2", value: brokerData.user_id }
+      ]
     };
 
-    // --- Choose correct endpoint based on token type ---
-    const baseUrl = process.env.GHL_PRIVATE_TOKEN?.startsWith("pit-")
-      ? "https://services.leadconnectorhq.com/v1/contacts"
-      : "https://services.leadconnectorhq.com/v2/contacts";
+    const url = `https://services.leadconnectorhq.com/v1/contacts/${contactId}`;
 
-    const url = `${baseUrl}/${contactId}`;
-    console.log(`🔗 PUT → ${url}`);
+    console.log(`🔗 PUT → ${url}`, updatePayload);
 
-    // --- Send update to GHL ---
     const ghlRes = await fetch(url, {
       method: "PUT",
       headers: {
@@ -49,25 +42,16 @@ export default async function handler(req, res) {
       body: JSON.stringify(updatePayload)
     });
 
-    const text = await ghlRes.text();
-    console.log("📡 Raw response:", text);
+    const data = await ghlRes.json();
+    console.log("📡 GHL response:", data);
 
-    // --- Parse and handle response ---
-    let data;
-    try {
-      data = JSON.parse(text);
-    } catch (err) {
-      throw new Error(`Unexpected response from GHL: ${text.slice(0, 120)}...`);
-    }
-
-    if (!ghlRes.ok) {
+    if (!ghlRes.ok)
       throw new Error(`GHL API error: ${JSON.stringify(data)}`);
-    }
 
-    console.log("✅ Contact successfully updated:", data);
+    console.log("✅ Broker successfully updated:", brokerData.user_id);
     return res.status(200).json({
       success: true,
-      brokerId: brokerData.user_id,
+      assignedUserId: brokerData.user_id,
       response: data
     });
 
