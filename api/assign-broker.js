@@ -1,6 +1,3 @@
-// /api/assign-broker.js
-import fetch from "node-fetch";
-
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({ success: false, message: "Method Not Allowed" });
@@ -15,7 +12,12 @@ export default async function handler(req, res) {
 
   try {
     // --- 1️⃣ Load brokers.json ---
-    const brokersRes = await fetch(`${process.env.VERCEL_URL ? "https://" + process.env.VERCEL_URL : "https://jag-psi.vercel.app"}/public/brokers.json`);
+    const baseUrl =
+      process.env.VERCEL_URL
+        ? `https://${process.env.VERCEL_URL}`
+        : "https://jag-psi.vercel.app";
+
+    const brokersRes = await fetch(`${baseUrl}/public/brokers.json`);
     const brokers = await brokersRes.json();
     const brokerData = brokers[brokerName];
 
@@ -27,16 +29,20 @@ export default async function handler(req, res) {
     console.log("🆔 Broker matched:", brokerData.user_id);
 
     // --- 2️⃣ Find the contact by email ---
-    const searchRes = await fetch(`https://services.leadconnectorhq.com/contacts/search?query=${encodeURIComponent(email)}`, {
-      headers: {
-        Authorization: `Bearer ${process.env.GHL_PRIVATE_TOKEN}`,
-        Version: "2021-07-28",
-        Accept: "application/json"
+    const searchRes = await fetch(
+      `https://services.leadconnectorhq.com/contacts/search?query=${encodeURIComponent(email)}`,
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.GHL_PRIVATE_TOKEN}`,
+          Version: "2021-07-28",
+          Accept: "application/json"
+        }
       }
-    });
-    const searchJson = await searchRes.json();
+    );
 
+    const searchJson = await searchRes.json();
     const contactId = searchJson?.contacts?.[0]?.id;
+
     if (!contactId) {
       console.warn("⚠️ Contact not found for:", email);
       return res.status(404).json({ success: false, message: "Contact not found" });
@@ -45,23 +51,26 @@ export default async function handler(req, res) {
     console.log("👤 Found contact:", contactId);
 
     // --- 3️⃣ Update the contact’s custom broker field ---
-    const updateRes = await fetch(`https://services.leadconnectorhq.com/contacts/${contactId}`, {
-      method: "PUT",
-      headers: {
-        Authorization: `Bearer ${process.env.GHL_PRIVATE_TOKEN}`,
-        Version: "2021-07-28",
-        "Content-Type": "application/json",
-        Accept: "application/json"
-      },
-      body: JSON.stringify({
-        customFields: [
-          {
-            id: "3rfOvf6EJzqJdVfzGBa2",
-            value: brokerData.user_id
-          }
-        ]
-      })
-    });
+    const updateRes = await fetch(
+      `https://services.leadconnectorhq.com/contacts/${contactId}`,
+      {
+        method: "PUT",
+        headers: {
+          Authorization: `Bearer ${process.env.GHL_PRIVATE_TOKEN}`,
+          Version: "2021-07-28",
+          "Content-Type": "application/json",
+          Accept: "application/json"
+        },
+        body: JSON.stringify({
+          customFields: [
+            {
+              id: "3rfOvf6EJzqJdVfzGBa2",
+              value: brokerData.user_id
+            }
+          ]
+        })
+      }
+    );
 
     const updateJson = await updateRes.json();
     console.log("📨 GHL update response:", updateJson);
