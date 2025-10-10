@@ -13,15 +13,15 @@ export default async function handler(req, res) {
     return res.status(400).json({ success: false, message: "Missing email or brokerName" });
 
   const token = process.env.GHL_PRIVATE_TOKEN;
-  const locationId = process.env.GHL_LOCATION_ID; // 👈 set this in Vercel!
+  const locationId = process.env.GHL_LOCATION_ID;
   if (!token || !locationId)
     return res.status(500).json({ success: false, message: "Missing GHL_PRIVATE_TOKEN or GHL_LOCATION_ID" });
 
   console.log("📨 assign-broker:", { email, brokerName });
 
   try {
-    // --- 1️⃣ Find contact by email (optional but nice)
-    const searchUrl = `https://services.leadconnectorhq.com/contacts/?email=${encodeURIComponent(email)}&locationId=${locationId}`;
+    // --- 1️⃣ Find contact by email using /contacts/search ---
+    const searchUrl = `https://services.leadconnectorhq.com/contacts/search?locationId=${locationId}&query=${encodeURIComponent(email)}`;
     console.log("🔍 Searching contact:", searchUrl);
 
     const searchRes = await fetch(searchUrl, {
@@ -30,29 +30,33 @@ export default async function handler(req, res) {
         "Authorization": `Bearer ${token}`,
         "Version": "2021-07-28",
         "Accept": "application/json",
-        "User-Agent": "BrokerBot/1.1",
+        "User-Agent": "BrokerBot/1.2",
       },
     });
 
     const searchData = await searchRes.json();
     console.log("🔍 Search response:", searchData);
 
-    if (!searchData.contacts || searchData.contacts.length === 0) {
-      return res.status(404).json({ success: false, message: "No contact found for that email" });
+    if (!searchRes.ok || !searchData.contacts || searchData.contacts.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "No contact found for that email",
+        debug: searchData,
+      });
     }
 
     const contactId = searchData.contacts[0].id;
     console.log("🆔 Found contact ID:", contactId);
 
-    // --- 2️⃣ Update contact with brokerId custom field
+    // --- 2️⃣ Update contact with brokerId field ---
     const updateUrl = `https://services.leadconnectorhq.com/contacts/${contactId}?locationId=${locationId}`;
     console.log("✏️ Updating contact:", updateUrl);
 
     const updateBody = {
       customFields: [
         {
-          id: "3rfOvf6EJzqJdVfzGBa2", // BrokerId field
-          value: brokerName, // or broker userId if you prefer
+          id: "3rfOvf6EJzqJdVfzGBa2", // BrokerId custom field
+          value: brokerName, // or user_id if you prefer
         },
       ],
     };
