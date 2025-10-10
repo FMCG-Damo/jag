@@ -1,5 +1,4 @@
 export default async function handler(req, res) {
-  // --- CORS ---
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS, PUT");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, Version, Accept");
@@ -20,8 +19,8 @@ export default async function handler(req, res) {
   console.log("📨 assign-broker:", { email, brokerName });
 
   try {
-    // --- 1️⃣ Find contact by email using /contacts/search ---
-    const searchUrl = `https://services.leadconnectorhq.com/contacts/search?locationId=${locationId}&query=${encodeURIComponent(email)}`;
+    // --- 1️⃣ Correct Private-App search endpoint ---
+    const searchUrl = `https://services.leadconnectorhq.com/locations/${locationId}/contacts/search?query=${encodeURIComponent(email)}`;
     console.log("🔍 Searching contact:", searchUrl);
 
     const searchRes = await fetch(searchUrl, {
@@ -30,7 +29,7 @@ export default async function handler(req, res) {
         "Authorization": `Bearer ${token}`,
         "Version": "2021-07-28",
         "Accept": "application/json",
-        "User-Agent": "BrokerBot/1.2",
+        "User-Agent": "BrokerBot/1.3"
       },
     });
 
@@ -38,7 +37,7 @@ export default async function handler(req, res) {
     console.log("🔍 Search response:", searchData);
 
     if (!searchRes.ok || !searchData.contacts || searchData.contacts.length === 0) {
-      return res.status(404).json({
+      return res.status(searchRes.status).json({
         success: false,
         message: "No contact found for that email",
         debug: searchData,
@@ -48,18 +47,9 @@ export default async function handler(req, res) {
     const contactId = searchData.contacts[0].id;
     console.log("🆔 Found contact ID:", contactId);
 
-    // --- 2️⃣ Update contact with brokerId field ---
+    // --- 2️⃣ Update broker field ---
     const updateUrl = `https://services.leadconnectorhq.com/contacts/${contactId}?locationId=${locationId}`;
     console.log("✏️ Updating contact:", updateUrl);
-
-    const updateBody = {
-      customFields: [
-        {
-          id: "3rfOvf6EJzqJdVfzGBa2", // BrokerId custom field
-          value: brokerName, // or user_id if you prefer
-        },
-      ],
-    };
 
     const updateRes = await fetch(updateUrl, {
       method: "PUT",
@@ -67,9 +57,13 @@ export default async function handler(req, res) {
         "Authorization": `Bearer ${token}`,
         "Version": "2021-07-28",
         "Accept": "application/json",
-        "Content-Type": "application/json",
+        "Content-Type": "application/json"
       },
-      body: JSON.stringify(updateBody),
+      body: JSON.stringify({
+        customFields: [
+          { id: "3rfOvf6EJzqJdVfzGBa2", value: brokerName }
+        ]
+      }),
     });
 
     const updateData = await updateRes.json();
@@ -83,7 +77,7 @@ export default async function handler(req, res) {
       });
     }
 
-    return res.status(200).json({
+    res.status(200).json({
       success: true,
       message: `Broker ${brokerName} assigned successfully`,
       contactId,
