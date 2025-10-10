@@ -1,74 +1,87 @@
 // /api/assign-broker.js
+import fetch from "node-fetch";
+
 export default async function handler(req, res) {
+  if (req.method !== "POST") {
+    return res.status(405).json({ success: false, message: "Method Not Allowed" });
+  }
+
+  const { email, brokerName } = req.body || {};
+  if (!email || !brokerName) {
+    return res.status(400).json({ success: false, message: "Missing email or brokerName" });
+  }
+
+  console.log("📨 assign-broker called:", req.method, { email, brokerName });
+
   try {
-    // --- CORS headers ---
-    res.setHeader("Access-Control-Allow-Origin", "*");
-    res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, Version");
+    // --- 1️⃣ Load brokers.json ---
+    const brokersRes = await fetch(`${process.env.VERCEL_URL ? "https://" + process.env.VERCEL_URL : "https://jag-psi.vercel.app"}/public/brokers.json`);
+    const brokers = await brokersRes.json();
+    const brokerData = brokers[brokerName];
 
-    // --- Preflight check ---
-    if (req.method === "OPTIONS") {
-      return res.status(200).end();
+    if (!brokerData || !brokerData.user_id) {
+      console.warn("⚠️ Broker not found in brokers.json:", brokerName);
+      return res.status(404).json({ success: false, message: "Broker not found" });
     }
 
-    // --- Method guard ---
-    if (req.method !== "POST") {
-      return res.status(405).json({ error: "Method not allowed" });
-    }
+    console.log("🆔 Broker matched:", brokerData.user_id);
 
-    console.log("📨 assign-broker called:", req.method, req.body);
-
-    const { email, brokerName } = req.body;
-    if (!email || !brokerName) {
-      return res.status(400).json({ error: "Missing email or brokerName" });
-    }
-
-    console.log("🧩 Assigning broker:", brokerName, "for", email);
-
-    // --- Load brokers.json from public folder ---
-    const brokers = await fetch("https://jag-psi.vercel.app/public/brokers.json")
-      .then(r => r.json());
-    const broker = brokers[brokerName] || brokers["Head Office"];
-    if (!broker?.user_id) {
-      return res.status(404).json({ error: `Broker not found: ${brokerName}` });
-    }
-
-    console.log("🆔 Broker matched:", broker.user_id);
-
-    // --- Update contact via GHL Private API ---
-    const ghlResponse = await fetch("https://services.leadconnectorhq.com/v1/contacts/", {
-      method: "POST",
+    // --- 2️⃣ Find the contact by email ---
+    const searchRes = await fetch(`https://services.leadconnectorhq.com/contacts/search?query=${encodeURIComponent(email)}`, {
       headers: {
         Authorization: `Bearer ${process.env.GHL_PRIVATE_TOKEN}`,
         Version: "2021-07-28",
-        Accept: "application/json",
-        "Content-Type": "application/json"
+        Accept: "application/json"
+      }
+    });
+    const searchJson = await searchRes.json();
+
+    const contactId = searchJson?.contacts?.[0]?.id;
+    if (!contactId) {
+      console.warn("⚠️ Contact not found for:", email);
+      return res.status(404).json({ success: false, message: "Contact not found" });
+    }
+
+    console.log("👤 Found contact:", contactId);
+
+    // --- 3️⃣ Update the contact’s custom broker field ---
+    const updateRes = await fetch(`https://services.leadconnectorhq.com/contacts/${contactId}`, {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${process.env.GHL_PRIVATE_TOKEN}`,
+        Version: "2021-07-28",
+        "Content-Type": "application/json",
+        Accept: "application/json"
       },
       body: JSON.stringify({
-        email,
-        customField: {
-          "3rfOvf6EJzqJdVfzGBa2": broker.user_id // brokerId field stores the user_id
-        }
+        customFields: [
+          {
+            id: "3rfOvf6EJzqJdVfzGBa2",
+            value: brokerData.user_id
+          }
+        ]
       })
     });
 
-    const data = await ghlResponse.json();
-    console.log("📨 GHL API response:", data);
+    const updateJson = await updateRes.json();
+    console.log("📨 GHL update response:", updateJson);
 
-    if (!ghlResponse.ok) {
-      return res.status(ghlResponse.status).json({ error: data });
+    if (updateRes.ok) {
+      return res.status(200).json({
+        success: true,
+        user_id: brokerData.user_id,
+        contactId,
+        ghlResponse: updateJson
+      });
+    } else {
+      return res.status(updateRes.status).json({
+        success: false,
+        message: "Failed to update contact",
+        details: updateJson
+      });
     }
-
-    // --- Success response ---
-    return res.status(200).json({
-      success: true,
-      brokerName,
-      user_id: broker.user_id,
-      ghl: data
-    });
-
   } catch (err) {
-    console.error("❌ Broker assignment failed:", err);
-    return res.status(500).json({ error: err.message || "Internal Server Error" });
+    console.error("❌ assign-broker error:", err);
+    return res.status(500).json({ success: false, message: err.message });
   }
 }
