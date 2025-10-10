@@ -1,38 +1,27 @@
-// ✅ Complete drop-in for Vercel: /api/assign-broker.js
-// Assigns a broker to a contact in GoHighLevel via Private App token
-// Requires: process.env.GHL_PRIVATE_TOKEN set in Vercel environment
-
 export default async function handler(req, res) {
-  // --- 1️⃣ CORS setup ---
+  // --- CORS ---
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS, PUT");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, Version, Accept");
 
-  if (req.method === "OPTIONS") {
-    return res.status(200).end(); // ✅ CORS preflight success
-  }
-
-  if (req.method !== "POST" && req.method !== "PUT") {
+  if (req.method === "OPTIONS") return res.status(200).end();
+  if (req.method !== "POST" && req.method !== "PUT")
     return res.status(405).json({ success: false, message: "Method Not Allowed" });
-  }
 
-  // --- 2️⃣ Parse input ---
   const { email, brokerName } = req.body || {};
-  if (!email || !brokerName) {
+  if (!email || !brokerName)
     return res.status(400).json({ success: false, message: "Missing email or brokerName" });
-  }
-
-  console.log("📨 assign-broker POST received:", { email, brokerName });
 
   const token = process.env.GHL_PRIVATE_TOKEN;
-  if (!token) {
-    console.error("❌ Missing environment variable: GHL_PRIVATE_TOKEN");
-    return res.status(500).json({ success: false, message: "Missing GHL_PRIVATE_TOKEN" });
-  }
+  const locationId = process.env.GHL_LOCATION_ID; // 👈 set this in Vercel!
+  if (!token || !locationId)
+    return res.status(500).json({ success: false, message: "Missing GHL_PRIVATE_TOKEN or GHL_LOCATION_ID" });
+
+  console.log("📨 assign-broker:", { email, brokerName });
 
   try {
-    // --- 3️⃣ Lookup contact by email ---
-    const searchUrl = `https://services.leadconnectorhq.com/contacts/?email=${encodeURIComponent(email)}`;
+    // --- 1️⃣ Find contact by email (optional but nice)
+    const searchUrl = `https://services.leadconnectorhq.com/contacts/?email=${encodeURIComponent(email)}&locationId=${locationId}`;
     console.log("🔍 Searching contact:", searchUrl);
 
     const searchRes = await fetch(searchUrl, {
@@ -41,39 +30,29 @@ export default async function handler(req, res) {
         "Authorization": `Bearer ${token}`,
         "Version": "2021-07-28",
         "Accept": "application/json",
+        "User-Agent": "BrokerBot/1.1",
       },
     });
 
-    if (!searchRes.ok) {
-      const errText = await searchRes.text();
-      console.error("❌ Contact search failed:", errText);
-      return res.status(searchRes.status).json({
-        success: false,
-        message: `GHL contact search failed (${searchRes.status})`,
-        error: errText,
-      });
-    }
-
     const searchData = await searchRes.json();
-    console.log("🔍 Contact search response:", searchData);
+    console.log("🔍 Search response:", searchData);
 
     if (!searchData.contacts || searchData.contacts.length === 0) {
-      console.warn("⚠️ No contact found for:", email);
       return res.status(404).json({ success: false, message: "No contact found for that email" });
     }
 
     const contactId = searchData.contacts[0].id;
     console.log("🆔 Found contact ID:", contactId);
 
-    // --- 4️⃣ Update custom field with broker name or ID ---
-    const updateUrl = `https://services.leadconnectorhq.com/contacts/${contactId}`;
+    // --- 2️⃣ Update contact with brokerId custom field
+    const updateUrl = `https://services.leadconnectorhq.com/contacts/${contactId}?locationId=${locationId}`;
     console.log("✏️ Updating contact:", updateUrl);
 
     const updateBody = {
       customFields: [
         {
-          id: "3rfOvf6EJzqJdVfzGBa2", // ← brokerId custom field ID
-          value: brokerName,        // store broker name or user ID here
+          id: "3rfOvf6EJzqJdVfzGBa2", // BrokerId field
+          value: brokerName, // or broker userId if you prefer
         },
       ],
     };
@@ -93,25 +72,21 @@ export default async function handler(req, res) {
     console.log("📬 GHL update response:", updateData);
 
     if (!updateRes.ok) {
-      console.error("❌ Failed to update contact:", updateData);
       return res.status(updateRes.status).json({
         success: false,
-        message: `Failed to update contact (${updateRes.status})`,
+        message: "Failed to update contact",
         error: updateData,
       });
     }
 
-    // --- 5️⃣ Return success ---
-    console.log("✅ Broker successfully assigned:", brokerName);
     return res.status(200).json({
       success: true,
-      message: `Broker ${brokerName} assigned`,
+      message: `Broker ${brokerName} assigned successfully`,
       contactId,
-      data: updateData,
+      update: updateData,
     });
-
   } catch (err) {
     console.error("💥 assign-broker exception:", err);
-    return res.status(500).json({ success: false, error: err.message });
+    res.status(500).json({ success: false, error: err.message });
   }
 }
