@@ -36,7 +36,7 @@ export default async function handler(req, res) {
     console.log("🆔 Broker matched:", broker.user_id);
 
     // --- Update contact via GHL Private API ---
-    const ghlResponse = await fetch("https://services.leadconnectorhq.com/contacts/", {
+    const ghlResponse = await fetch("https://services.leadconnectorhq.com/v1/contacts/", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${process.env.GHL_PRIVATE_TOKEN}`,
